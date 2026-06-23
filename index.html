@@ -11,6 +11,7 @@
 <body class="bg-gray-900 text-gray-100 min-h-screen p-6 font-sans">
 
     <div class="max-w-7xl mx-auto">
+        <!-- Header Dashboard -->
         <header class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
             <div>
                 <h1 class="text-3xl font-bold tracking-tight bg-gradient-to-r silver text-emerald-400 bg-clip-text">PTO Tracker Ledger</h1>
@@ -22,7 +23,9 @@
             </div>
         </header>
 
+        <!-- Control Tools Panel -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <!-- Smart Trip Entry Form -->
             <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-xl lg:col-span-2">
                 <h2 class="text-lg font-bold text-emerald-400 mb-4 flex items-center gap-2">
                     <span>🏝️</span> Smart Trip Entry Tool
@@ -56,6 +59,7 @@
                 </form>
             </div>
 
+            <!-- Paycheck Sync / Balance Adjuster -->
             <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-xl flex flex-col justify-between">
                 <div>
                     <h2 class="text-lg font-bold text-amber-400 mb-2 flex items-center gap-2">
@@ -81,12 +85,14 @@
             </div>
         </div>
 
+        <!-- Ledger Table Panel -->
         <div class="bg-gray-800 rounded-xl border border-gray-700 shadow-xl overflow-hidden mb-12">
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse table-fixed min-w-[1200px]">
                     <thead>
                         <tr class="bg-gray-950 text-gray-300 text-xs font-bold uppercase tracking-wider border-b border-gray-700/80">
-                            <th class="p-4 w-12 text-center"></th> <th class="p-4 w-20">Period</th>
+                            <th class="p-4 w-12 text-center"></th>
+                            <th class="p-4 w-20">Period</th>
                             <th class="p-4 w-32">Start Date</th>
                             <th class="p-4 w-32">End Date</th>
                             <th class="p-4 w-32">Pay Date</th>
@@ -119,15 +125,37 @@
     </div>
 
     <script>
+        console.log("Script block loaded completely.");
+
         const SUPABASE_URL = 'https://qyatqnytdowltqatartn.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF5YXRxbnl0ZG93bHRxYXRhcnRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyMjU3NzcsImV4cCI6MjA5NzgwMTc3N30.a2KwIc8gnQpJH5NRNuYv8oMYl7IsHdRNq8jpXN3dojU';
         
-        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
+        let supabaseClient;
         let globalPayPeriodsCache = [];
         let balanceOverrides = {};
         let activeMenuPeriod = null;
         let showPastRowsState = false;
+
+        // Initialize safe execution on DOM setup completion
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log("DOM content ready. Initializing Supabase client setup...");
+            try {
+                if (typeof supabase === 'undefined') {
+                    throw new Error("Supabase CDN dependency is missing or failed to initialize.");
+                }
+                supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log("Supabase client successfully constructed. Initializing tracking data read...");
+                loadPTOTracker();
+            } catch (err) {
+                console.error("Initialization fault detected:", err);
+                document.getElementById('ledger-body').innerHTML = `
+                    <tr>
+                        <td colspan="12" class="p-8 text-center text-red-400 font-bold">
+                            💥 Script Initialization Error: ${err.message}
+                        </td>
+                    </tr>`;
+            }
+        });
 
         window.togglePastRows = function() {
             showPastRowsState = !showPastRowsState;
@@ -169,14 +197,25 @@
         });
 
         async function loadPTOTracker() {
+            console.log("loadPTOTracker triggered. Dispatching network query request...");
             try {
                 let { data: payPeriods, error } = await supabaseClient
                     .from('pay_periods')
                     .select('*')
                     .order('period_number', { ascending: true });
 
-                if (error) throw error;
+                if (error) {
+                    console.error("Database layer reported an explicit failure response:", error);
+                    document.getElementById('ledger-body').innerHTML = `
+                        <tr>
+                            <td colspan="12" class="p-8 text-center text-red-400 font-medium">
+                                ⚠️ Supabase Error: ${error.message} (${error.details || 'Check Exposed Schemas'})
+                            </td>
+                        </tr>`;
+                    return;
+                }
 
+                console.log("Network response resolved successfully. Received record payload count:", payPeriods ? payPeriods.length : 0);
                 globalPayPeriodsCache = payPeriods || [];
 
                 const activeBody = document.getElementById('ledger-body');
@@ -185,15 +224,17 @@
                 pastBody.innerHTML = '';
 
                 if (globalPayPeriodsCache.length === 0) {
-                    activeBody.innerHTML = `<tr><td colspan="12" class="p-8 text-center text-gray-400">No records found.</td></tr>`;
+                    activeBody.innerHTML = `<tr><td colspan="12" class="p-8 text-center text-gray-400">No records found inside the database table.</td></tr>`;
                     return;
                 }
 
                 const today = new Date();
                 today.setHours(0,0,0,0);
-                let runningBalance = 46.96; 
+                
+                // Adjusted initial baseline balance precisely as requested
+                let runningBalance = 45.96; 
                 let pastCount = 0;
-                let calculatedLiveBalance = 46.96;
+                let calculatedLiveBalance = 45.96;
                 let foundCurrentPeriod = false;
 
                 globalPayPeriodsCache.forEach((row) => {
@@ -218,7 +259,6 @@
                         isPast = periodEndDate < today;
                     }
 
-                    // Dynamically capture live operational balance from the current calendar cycle
                     if (!isPast && !foundCurrentPeriod) {
                         calculatedLiveBalance = startingBal;
                         foundCurrentPeriod = true;
@@ -268,11 +308,16 @@
                 });
 
                 document.getElementById('past-row-count').innerText = pastCount;
-                // Update live balance text cleanly
                 document.getElementById('current-balance').innerText = `${calculatedLiveBalance.toFixed(2)} hrs`;
 
             } catch (err) {
-                console.error("Database error:", err);
+                console.error("Fatal exception intercepted during rendering pipeline:", err);
+                document.getElementById('ledger-body').innerHTML = `
+                    <tr>
+                        <td colspan="12" class="p-8 text-center text-amber-500 font-medium animate-pulse">
+                            ⚠️ Network Interruption: Thread crashed during render execution sequence.
+                        </td>
+                    </tr>`;
             }
         }
 
@@ -367,4 +412,51 @@
             const endStr = end.toLocaleDateString('en-US', {month:'numeric', day:'numeric'});
             const extraNotesText = `${startStr}-${endStr}, Calculated PTO: ${businessDays} business days (${hoursUsed} hrs). Saturday/Sunday omitted from deduction.`;
 
-            previewDiv.innerHTML
+            previewDiv.innerHTML = `<span class="text-emerald-400 font-bold">${hoursUsed} hrs used</span> (${businessDays} full tracking days, ${totalDays - businessDays} weekend days skipped).`;
+            
+            return { hoursUsed, businessDays, extraNotesText };
+        }
+
+        document.getElementById('trip-start').addEventListener('change', calculateTripDetails);
+        document.getElementById('trip-end').addEventListener('change', calculateTripDetails);
+
+        document.getElementById('trip-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const period = parseInt(document.getElementById('form-period').value);
+            const notes = document.getElementById('form-notes').value;
+            
+            const calculations = calculateTripDetails();
+            if (!calculations) return;
+
+            const { error } = await supabaseClient
+                .from('pay_periods')
+                .update({
+                    hours_used: calculations.hoursUsed,
+                    days_used: calculations.businessDays,
+                    notes: notes,
+                    extra_notes: calculations.extraNotesText
+                })
+                .eq('period_number', period);
+
+            if (error) {
+                alert("Error updating database: " + error.message);
+            } else {
+                document.getElementById('trip-form').reset();
+                document.getElementById('trip-preview').innerText = "Select dates to view calculations...";
+                await loadPTOTracker();
+            }
+        });
+
+        document.getElementById('override-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const period = parseInt(document.getElementById('override-period').value);
+            const balance = parseFloat(document.getElementById('override-balance').value);
+
+            balanceOverrides[period] = balance;
+            
+            document.getElementById('override-form').reset();
+            await loadPTOTracker();
+        });
+    </script>
+</body>
+</html>
