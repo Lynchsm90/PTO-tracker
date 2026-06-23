@@ -50,17 +50,16 @@
     </div>
 
     <script>
-        // 1. Initialize Supabase using a unique instance variable name
+        // 1. Initialize Supabase using a unique variable name to prevent naming crashes
         const SUPABASE_URL = 'https://qyatqnytdowltqatartn.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF5YXRxbnl0ZG93bHRxYXRhcnRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyMjU3NzcsImV4cCI6MjA5NzgwMTc3N30.a2KwIc8gnQpJH5NRNuYv8oMYl7IsHdRNq8jpXN3dojU';
         
-        // This resolves the duplicate declaration crash:
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         // 2. Fetch data and calculate rolling timeline
         async function loadPTOTracker() {
             try {
-                // Correctly referencing the custom initialized client name
+                // Fetch fields ordered chronologically
                 let { data: payPeriods, error } = await supabaseClient
                     .from('pay_periods')
                     .select('*')
@@ -71,16 +70,15 @@
                 const tbody = document.getElementById('ledger-body');
                 tbody.innerHTML = ''; // Clear loading placeholder
 
-                // Fallback layer if database table hasn't finished seeding yet
                 if (!payPeriods || payPeriods.length === 0) {
                     tbody.innerHTML = `<tr><td colspan="11" class="p-8 text-center text-gray-400">No records found. Seed your database to see rows.</td></tr>`;
                     return;
                 }
 
-                // Baseline math configs matching row 1 of your spreadsheet
+                // Initial baseline configurations matching row 1 of your sheet
                 let runningBalance = 46.96; 
 
-                // 3. Process the math and build table elements reactively
+                // 3. Map & Render rows dynamically while processing the math
                 payPeriods.forEach((row) => {
                     const startingBal = runningBalance;
                     const usedHours = row.hours_used || 0;
@@ -88,9 +86,10 @@
                     const accrual = row.accrual_amount || 5;
                     const endingBal = startingBal - usedHours + accrual;
                     
+                    // Push rolling total forward for the next row
                     runningBalance = endingBal;
 
-                    // Row conditional style highlights if a trip/PTO is logged
+                    // Replicate conditional formatting: row highlights green if PTO is taken
                     const rowClass = usedHours > 0 
                         ? 'bg-emerald-950/40 border-l-4 border-emerald-500 transition-colors' 
                         : 'hover:bg-gray-750/50 transition-colors';
@@ -113,7 +112,7 @@
                     tbody.appendChild(tr);
                 });
 
-                // Update active balance badge layout with calculated result
+                // Update Dashboard Display with the final active total
                 document.getElementById('current-balance').innerText = `${runningBalance.toFixed(2)} hrs`;
 
             } catch (err) {
@@ -128,7 +127,7 @@
             }
         }
 
-        // Mount tracker app
+        // Run client app on mount
         loadPTOTracker();
     </script>
 </body>
