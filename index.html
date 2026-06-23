@@ -59,7 +59,7 @@
         async function loadPTOTracker() {
             try {
                 // Fetch fields ordered chronologically
-                let { data: payPeriods, error } = await supabase
+                let { data: payPeriods, error } = await supabaseClient
                     .from('pay_periods')
                     .select('*')
                     .order('period_number', { ascending: true });
