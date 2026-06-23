@@ -120,4 +120,176 @@
         // 2. Main Ledger Loader & Calculator Engine
         async function loadPTOTracker() {
             try {
-                let
+                let { data: payPeriods, error } = await supabaseClient
+                    .from('pay_periods')
+                    .select('*')
+                    .order('period_number', { ascending: true });
+
+                if (error) throw error;
+
+                const tbody = document.getElementById('ledger-body');
+                tbody.innerHTML = '';
+
+                if (!payPeriods || payPeriods.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="11" class="p-8 text-center text-gray-400">No records found.</td></tr>`;
+                    return;
+                }
+
+                // Get today's timestamp to compare past vs future periods
+                const today = new Date();
+                today.setHours(0,0,0,0);
+
+                // Hardcoded initialization baseline from row 1 of your spreadsheet
+                let runningBalance = 46.96; 
+
+                payPeriods.forEach((row) => {
+                    let startingBal = runningBalance;
+                    const usedHours = row.hours_used || 0;
+                    const usedDays = row.days_used || '';
+                    const accrual = row.accrual_amount || 5;
+                    
+                    let endingBal = startingBal - usedHours + accrual;
+                    let explicitOverrideStyle = '';
+
+                    // Apply paycheck balance override logic
+                    if (balanceOverrides[row.period_number] !== undefined) {
+                        endingBal = balanceOverrides[row.period_number];
+                        explicitOverrideStyle = 'text-amber-400 font-black title="Synced via Paycheck stub override"';
+                    }
+                    
+                    runningBalance = endingBal;
+
+                    // Date evaluation to identify past periods
+                    const periodEndDate = new Date(row.end_date + 'T00:00:00');
+                    const isPast = periodEndDate < today;
+
+                    // Determine row style adjustments based on status
+                    let rowClass = 'hover:bg-gray-750/50';
+                    let textClass = 'text-gray-300';
+                    let mutedTextClass = 'text-gray-400';
+                    let strikeClass = '';
+
+                    if (isPast) {
+                        // Collapse / Fade / Line-through adjustments for historic records
+                        rowClass = 'opacity-35 bg-gray-950/30 line-through decoration-gray-600 border-l border-gray-800';
+                        textClass = 'text-gray-500';
+                        mutedTextClass = 'text-gray-600';
+                        strikeClass = 'line-through decoration-gray-600';
+                    } else if (usedHours > 0) {
+                        // Keep current active vacation items vividly highlighted
+                        rowClass = 'bg-emerald-950/40 border-l-4 border-emerald-500';
+                    }
+
+                    const tr = document.createElement('tr');
+                    tr.className = rowClass;
+                    tr.innerHTML = `
+                        <td class="p-4 font-bold ${isPast ? 'text-gray-600' : usedHours > 0 ? 'text-emerald-400' : 'text-gray-400'}">${row.period_number}</td>
+                        <td class="p-4 ${textClass}">${new Date(row.start_date).toLocaleDateString()}</td>
+                        <td class="p-4 ${mutedTextClass}">${new Date(row.end_date).toLocaleDateString()}</td>
+                        <td class="p-4 ${mutedTextClass}">${new Date(row.pay_date).toLocaleDateString()}</td>
+                        <td class="p-4 text-right font-mono ${mutedTextClass}">${startingBal.toFixed(2)}</td>
+                        <td class="p-4 text-center font-mono font-semibold ${isPast ? 'text-gray-600' : usedHours > 0 ? 'text-amber-400' : 'text-gray-500'}">${usedHours}</td>
+                        <td class="p-4 text-center ${mutedTextClass}">${usedDays}</td>
+                        <td class="p-4 text-center font-mono ${mutedTextClass}">${accrual}</td>
+                        <td class="p-4 text-right font-mono ${isPast ? 'text-gray-600' : explicitOverrideStyle || 'text-emerald-400 font-bold'}">${endingBal.toFixed(2)}</td>
+                        <td class="p-4 font-medium ${isPast ? 'text-gray-500' : 'text-gray-200'}">${row.notes || ''}</td>
+                        <td class="p-4 text-xs ${isPast ? 'text-gray-600' : 'text-gray-400'} italic">${row.extra_notes || ''}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+                document.getElementById('current-balance').innerText = `${runningBalance.toFixed(2)} hrs`;
+
+            } catch (err) {
+                console.error("Database error:", err);
+            }
+        }
+
+        // 3. Weekend-Skipping Math Logic & Form Previews
+        function calculateTripDetails() {
+            const startVal = document.getElementById('trip-start').value;
+            const endVal = document.getElementById('trip-end').value;
+            const previewDiv = document.getElementById('trip-preview');
+
+            if (!startVal || !endVal) return;
+
+            let start = new Date(startVal + 'T00:00:00');
+            let end = new Date(endVal + 'T00:00:00');
+
+            if (end < start) {
+                previewDiv.innerHTML = `<span class="text-red-400">Error: End date occurs before start date.</span>`;
+                return;
+            }
+
+            let businessDays = 0;
+            let totalDays = 0;
+            let current = new Date(start);
+
+            while (current <= end) {
+                totalDays++;
+                const dayOfWeek = current.getDay();
+                if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                    businessDays++;
+                }
+                current.setDate(current.getDate() + 1);
+            }
+
+            const hoursUsed = businessDays * 8;
+            
+            const startStr = start.toLocaleDateString('en-US', {month:'numeric', day:'numeric'});
+            const endStr = end.toLocaleDateString('en-US', {month:'numeric', day:'numeric'});
+            const extraNotesText = `${startStr}-${endStr}, Calculated PTO: ${businessDays} business days (${hoursUsed} hrs). Saturday/Sunday omitted from deduction.`;
+
+            previewDiv.innerHTML = `<span class="text-emerald-400 font-bold">${hoursUsed} hrs used</span> (${businessDays} full tracking days, ${totalDays - businessDays} weekend days skipped).`;
+            
+            return { hoursUsed, businessDays, extraNotesText };
+        }
+
+        document.getElementById('trip-start').addEventListener('change', calculateTripDetails);
+        document.getElementById('trip-end').addEventListener('change', calculateTripDetails);
+
+        // 4. Submit New Vacation Trip Data to Supabase
+        document.getElementById('trip-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const period = parseInt(document.getElementById('form-period').value);
+            const notes = document.getElementById('form-notes').value;
+            
+            const calculations = calculateTripDetails();
+            if (!calculations) return;
+
+            const { error } = await supabaseClient
+                .from('pay_periods')
+                .update({
+                    hours_used: calculations.hoursUsed,
+                    days_used: calculations.businessDays,
+                    notes: notes,
+                    extra_notes: calculations.extraNotesText
+                })
+                .eq('period_number', period);
+
+            if (error) {
+                alert("Error updating database: " + error.message);
+            } else {
+                document.getElementById('trip-form').reset();
+                document.getElementById('trip-preview').innerText = "Select dates to view calculations...";
+                await loadPTOTracker();
+            }
+        });
+
+        // 5. Submit Paycheck Balance Override Sync
+        document.getElementById('override-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const period = parseInt(document.getElementById('override-period').value);
+            const balance = parseFloat(document.getElementById('override-balance').value);
+
+            balanceOverrides[period] = balance;
+            
+            document.getElementById('override-form').reset();
+            await loadPTOTracker();
+        });
+
+        // Initialize engine on window load
+        loadPTOTracker();
+    </script>
+</body>
+</html>
