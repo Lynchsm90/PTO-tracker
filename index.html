@@ -21,6 +21,65 @@
             </div>
         </header>
 
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-xl lg:col-span-2">
+                <h2 class="text-lg font-bold text-emerald-400 mb-4 flex items-center gap-2">
+                    <span>🏝️</span> Smart Trip Entry Tool
+                </h2>
+                <form id="trip-form" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Target Pay Period (#)</label>
+                        <input type="number" id="form-period" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" placeholder="e.g. 14">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Trip Name / Destination</label>
+                        <input type="text" id="form-notes" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" placeholder="e.g. Pinecrest?">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Trip Start Date</label>
+                        <input type="date" id="trip-start" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Trip End Date</label>
+                        <input type="date" id="trip-end" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500">
+                    </div>
+                    <div class="md:col-span-2 bg-gray-900/50 p-3 rounded-lg border border-gray-700/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                        <div class="text-xs text-gray-400">
+                            <span class="font-bold text-gray-300">Auto-Calculation Preview:</span>
+                            <div id="trip-preview">Select dates to view calculations...</div>
+                        </div>
+                        <button type="submit" class="w-full md:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm px-5 py-2 rounded-lg transition-colors shadow-md">
+                            Log Trip to Ledger
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-xl flex flex-col justify-between">
+                <div>
+                    <h2 class="text-lg font-bold text-amber-400 mb-2 flex items-center gap-2">
+                        <span>📉</span> Balance Sync / Drift Override
+                    </h2>
+                    <p class="text-xs text-gray-400 mb-4">
+                        If your calculation drifts from your real paycheck stub, force your true balance into a selected pay period milestone.
+                    </p>
+                </div>
+                <form id="override-form" class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">At End of Period (#)</label>
+                        <input type="number" id="override-period" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500" placeholder="e.g. 12">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">True Paycheck Balance (Hours)</label>
+                        <input type="number" step="0.01" id="override-balance" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500" placeholder="e.g. 40.50">
+                    </div>
+                    <button type="submit" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold text-sm px-4 py-2 rounded-lg transition-colors shadow-md">
+                        Apply Sync Adjustment
+                    </button>
+                </form>
+            </div>
+        </div>
+
         <div class="bg-gray-800 rounded-xl border border-gray-700 shadow-xl overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
@@ -50,85 +109,15 @@
     </div>
 
     <script>
-        // 1. Initialize Supabase using a unique variable name to prevent naming crashes
+        // 1. Initialize Supabase
         const SUPABASE_URL = 'https://qyatqnytdowltqatartn.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF5YXRxbnl0ZG93bHRxYXRhcnRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyMjU3NzcsImV4cCI6MjA5NzgwMTc3N30.a2KwIc8gnQpJH5NRNuYv8oMYl7IsHdRNq8jpXN3dojU';
-        
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // 2. Fetch data and calculate rolling timeline
+        // Track user balance override markers globally
+        let balanceOverrides = {};
+
+        // 2. Main Ledger Loader & Calculator Engine
         async function loadPTOTracker() {
             try {
-                // Fetch fields ordered chronologically
-                let { data: payPeriods, error } = await supabaseClient
-                    .from('pay_periods')
-                    .select('*')
-                    .order('period_number', { ascending: true });
-
-                if (error) throw error;
-
-                const tbody = document.getElementById('ledger-body');
-                tbody.innerHTML = ''; // Clear loading placeholder
-
-                if (!payPeriods || payPeriods.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="11" class="p-8 text-center text-gray-400">No records found. Seed your database to see rows.</td></tr>`;
-                    return;
-                }
-
-                // Initial baseline configurations matching row 1 of your sheet
-                let runningBalance = 46.96; 
-
-                // 3. Map & Render rows dynamically while processing the math
-                payPeriods.forEach((row) => {
-                    const startingBal = runningBalance;
-                    const usedHours = row.hours_used || 0;
-                    const usedDays = row.days_used || '';
-                    const accrual = row.accrual_amount || 5;
-                    const endingBal = startingBal - usedHours + accrual;
-                    
-                    // Push rolling total forward for the next row
-                    runningBalance = endingBal;
-
-                    // Replicate conditional formatting: row highlights green if PTO is taken
-                    const rowClass = usedHours > 0 
-                        ? 'bg-emerald-950/40 border-l-4 border-emerald-500 transition-colors' 
-                        : 'hover:bg-gray-750/50 transition-colors';
-
-                    const tr = document.createElement('tr');
-                    tr.className = rowClass;
-                    tr.innerHTML = `
-                        <td class="p-4 font-bold ${usedHours > 0 ? 'text-emerald-400' : 'text-gray-400'}">${row.period_number}</td>
-                        <td class="p-4 text-gray-300">${new Date(row.start_date).toLocaleDateString()}</td>
-                        <td class="p-4 text-gray-400">${new Date(row.end_date).toLocaleDateString()}</td>
-                        <td class="p-4 text-gray-400">${new Date(row.pay_date).toLocaleDateString()}</td>
-                        <td class="p-4 text-right font-mono text-gray-400">${startingBal.toFixed(2)}</td>
-                        <td class="p-4 text-center font-mono font-semibold ${usedHours > 0 ? 'text-amber-400' : 'text-gray-500'}">${usedHours}</td>
-                        <td class="p-4 text-center text-gray-400">${usedDays}</td>
-                        <td class="p-4 text-center font-mono text-gray-400">${accrual}</td>
-                        <td class="p-4 text-right font-mono font-bold text-emerald-400">${endingBal.toFixed(2)}</td>
-                        <td class="p-4 font-medium text-gray-200">${row.notes || ''}</td>
-                        <td class="p-4 text-xs text-gray-400 italic">${row.extra_notes || ''}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-
-                // Update Dashboard Display with the final active total
-                document.getElementById('current-balance').innerText = `${runningBalance.toFixed(2)} hrs`;
-
-            } catch (err) {
-                console.error("Database connection failed:", err);
-                document.getElementById('ledger-body').innerHTML = `
-                    <tr>
-                        <td colspan="11" class="p-8 text-center text-red-400">
-                            <strong>Failed to connect to backend:</strong> ${err.message}<br>
-                            <span class="text-xs text-gray-500">Ensure URL/API keys match and schema exists.</span>
-                        </td>
-                    </tr>`;
-            }
-        }
-
-        // Run client app on mount
-        loadPTOTracker();
-    </script>
-</body>
-</html>
+                let
