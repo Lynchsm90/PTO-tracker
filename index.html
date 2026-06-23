@@ -136,24 +136,17 @@
         let activeMenuPeriod = null;
         let showPastRowsState = false;
 
-        // Initialize safe execution on DOM setup completion
         window.addEventListener('DOMContentLoaded', () => {
-            console.log("DOM content ready. Initializing Supabase client setup...");
             try {
                 if (typeof supabase === 'undefined') {
-                    throw new Error("Supabase CDN dependency is missing or failed to initialize.");
+                    throw new Error("Supabase CDN dependency is missing.");
                 }
                 supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                console.log("Supabase client successfully constructed. Initializing tracking data read...");
                 loadPTOTracker();
             } catch (err) {
-                console.error("Initialization fault detected:", err);
+                console.error("Initialization fault:", err);
                 document.getElementById('ledger-body').innerHTML = `
-                    <tr>
-                        <td colspan="12" class="p-8 text-center text-red-400 font-bold">
-                            💥 Script Initialization Error: ${err.message}
-                        </td>
-                    </tr>`;
+                    <tr><td colspan="12" class="p-8 text-center text-red-400 font-bold">💥 Initialization Error: ${err.message}</td></tr>`;
             }
         });
 
@@ -173,12 +166,10 @@
         window.toggleActionMenu = function(event, periodNumber) {
             event.stopPropagation();
             const currentMenu = document.getElementById(`menu-${periodNumber}`);
-            
             if (activeMenuPeriod && activeMenuPeriod !== periodNumber) {
                 const openMenu = document.getElementById(`menu-${activeMenuPeriod}`);
                 if (openMenu) openMenu.classList.add('hidden');
             }
-
             if (currentMenu.classList.contains('hidden')) {
                 currentMenu.classList.remove('hidden');
                 activeMenuPeriod = periodNumber;
@@ -197,7 +188,6 @@
         });
 
         async function loadPTOTracker() {
-            console.log("loadPTOTracker triggered. Dispatching network query request...");
             try {
                 let { data: payPeriods, error } = await supabaseClient
                     .from('pay_periods')
@@ -205,33 +195,26 @@
                     .order('period_number', { ascending: true });
 
                 if (error) {
-                    console.error("Database layer reported an explicit failure response:", error);
                     document.getElementById('ledger-body').innerHTML = `
-                        <tr>
-                            <td colspan="12" class="p-8 text-center text-red-400 font-medium">
-                                ⚠️ Supabase Error: ${error.message} (${error.details || 'Check Exposed Schemas'})
-                            </td>
-                        </tr>`;
+                        <tr><td colspan="12" class="p-8 text-center text-red-400 font-medium">⚠️ Error: ${error.message}</td></tr>`;
                     return;
                 }
 
-                console.log("Network response resolved successfully. Received record payload count:", payPeriods ? payPeriods.length : 0);
                 globalPayPeriodsCache = payPeriods || [];
-
                 const activeBody = document.getElementById('ledger-body');
                 const pastBody = document.getElementById('past-ledger-body');
                 activeBody.innerHTML = '';
                 pastBody.innerHTML = '';
 
                 if (globalPayPeriodsCache.length === 0) {
-                    activeBody.innerHTML = `<tr><td colspan="12" class="p-8 text-center text-gray-400">No records found inside the database table.</td></tr>`;
+                    activeBody.innerHTML = `<tr><td colspan="12" class="p-8 text-center text-gray-400">No records found.</td></tr>`;
                     return;
                 }
 
                 const today = new Date();
                 today.setHours(0,0,0,0);
                 
-                // FIXED: Reset timeline calculation foundation to match Period 1 true logic
+                // ANCHORED BASELINE: Lock truth to exactly 46.96 at Period 1
                 let runningBalance = 46.96; 
                 let pastCount = 0;
                 let calculatedLiveBalance = 46.96;
@@ -282,7 +265,7 @@
                     tr.id = `row-${row.period_number}`;
                     tr.innerHTML = `
                         <td class="p-4 text-center relative overflow-visible">
-                            <button onclick="toggleActionMenu(event, ${row.period_number})" class="text-gray-400 hover:text-white bg-gray-700/20 hover:bg-gray-700 p-1 rounded font-medium select-none cursor-pointer transition-all leading-none">⋮</button>
+                            <button onclick="toggleActionMenu(event, ${row.period_number})" class="text-gray-400 hover:text-white bg-gray-700/20 hover:bg-gray-700 p-1 rounded font-medium cursor-pointer transition-all leading-none">⋮</button>
                             <div id="menu-${row.period_number}" class="hidden absolute left-4 top-10 bg-gray-950 border border-gray-700 rounded-lg shadow-2xl z-50 w-28 text-left py-1 overflow-hidden">
                                 <button onclick="enableInlineEdit(${row.period_number})" class="w-full text-left px-3 py-1.5 text-xs hover:bg-emerald-600 text-gray-200 font-medium cursor-pointer">✏️ Edit Row</button>
                             </div>
@@ -311,13 +294,7 @@
                 document.getElementById('current-balance').innerText = `${calculatedLiveBalance.toFixed(2)} hrs`;
 
             } catch (err) {
-                console.error("Fatal exception intercepted during rendering pipeline:", err);
-                document.getElementById('ledger-body').innerHTML = `
-                    <tr>
-                        <td colspan="12" class="p-8 text-center text-amber-500 font-medium animate-pulse">
-                            ⚠️ Network Interruption: Thread crashed during render execution sequence.
-                        </td>
-                    </tr>`;
+                console.error("Render pipeline crash:", err);
             }
         }
 
@@ -326,7 +303,6 @@
             if (!rowData) return;
 
             const tr = document.getElementById(`row-${periodNumber}`);
-            
             tr.innerHTML = `
                 <td class="p-2 text-center flex items-center justify-center gap-1 mt-1">
                     <button onclick="saveInlineEdit(${periodNumber})" class="bg-emerald-600 hover:bg-emerald-500 text-white px-1.5 py-0.5 rounded text-xs font-bold shadow cursor-pointer">💾</button>
@@ -372,7 +348,7 @@
                 .eq('period_number', periodNumber);
 
             if (error) {
-                alert("Failed to update database record: " + error.message);
+                alert("Failed to update: " + error.message);
             } else {
                 await loadPTOTracker();
             }
@@ -407,13 +383,11 @@
             }
 
             const hoursUsed = businessDays * 8;
-            
             const startStr = start.toLocaleDateString('en-US', {month:'numeric', day:'numeric'});
             const endStr = end.toLocaleDateString('en-US', {month:'numeric', day:'numeric'});
             const extraNotesText = `${startStr}-${endStr}, Calculated PTO: ${businessDays} business days (${hoursUsed} hrs). Saturday/Sunday omitted from deduction.`;
 
-            previewDiv.innerHTML = `<span class="text-emerald-400 font-bold">${hoursUsed} hrs used</span> (${businessDays} full tracking days, ${totalDays - businessDays} weekend days skipped).`;
-            
+            previewDiv.innerHTML = `<span class="text-emerald-400 font-bold">${hoursUsed} hrs used</span> (${businessDays} business days).`;
             return { hoursUsed, businessDays, extraNotesText };
         }
 
@@ -424,7 +398,6 @@
             e.preventDefault();
             const period = parseInt(document.getElementById('form-period').value);
             const notes = document.getElementById('form-notes').value;
-            
             const calculations = calculateTripDetails();
             if (!calculations) return;
 
@@ -451,9 +424,7 @@
             e.preventDefault();
             const period = parseInt(document.getElementById('override-period').value);
             const balance = parseFloat(document.getElementById('override-balance').value);
-
             balanceOverrides[period] = balance;
-            
             document.getElementById('override-form').reset();
             await loadPTOTracker();
         });
