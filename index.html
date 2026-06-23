@@ -121,4 +121,289 @@
 
     <script>
         const SUPABASE_URL = 'https://qyatqnytdowltqatartn.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF5YXRxbnl0ZG93bHRxYXRhcnRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OD
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF5YXRxbnl0ZG93bHRxYXRhcnRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyMjU3NzcsImV4cCI6MjA5NzgwMTc3N30.a2KwIc8gnQpJH5NRNuYv8oMYl7IsHdRNq8jpXN3dojU';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let balanceOverrides = {};
+        let activeMenuPeriod = null;
+        let showPastRowsState = false;
+
+        function togglePastRows() {
+            showPastRowsState = !showPastRowsState;
+            const body = document.getElementById('past-ledger-body');
+            const arrow = document.getElementById('accordion-arrow');
+            if (showPastRowsState) {
+                body.classList.remove('hidden');
+                arrow.style.transform = 'rotate(90deg)';
+            } else {
+                body.classList.add('hidden');
+                arrow.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        async function loadPTOTracker() {
+            try {
+                let { data: payPeriods, error } = await supabaseClient
+                    .from('pay_periods')
+                    .select('*')
+                    .order('period_number', { ascending: true });
+
+                if (error) throw error;
+
+                const activeBody = document.getElementById('ledger-body');
+                const pastBody = document.getElementById('past-ledger-body');
+                activeBody.innerHTML = '';
+                pastBody.innerHTML = '';
+
+                if (!payPeriods || payPeriods.length === 0) {
+                    activeBody.innerHTML = `<tr><td colspan="12" class="p-8 text-center text-gray-400">No records found.</td></tr>`;
+                    return;
+                }
+
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                let runningBalance = 46.96; 
+                let pastCount = 0;
+
+                payPeriods.forEach((row) => {
+                    let startingBal = runningBalance;
+                    const usedHours = row.hours_used || 0;
+                    const usedDays = row.days_used !== null && row.days_used !== undefined ? row.days_used : '';
+                    const accrual = row.accrual_amount || 5;
+                    
+                    let endingBal = startingBal - usedHours + accrual;
+                    let explicitOverrideStyle = '';
+
+                    if (balanceOverrides[row.period_number] !== undefined) {
+                        endingBal = balanceOverrides[row.period_number];
+                        explicitOverrideStyle = 'text-amber-400 font-black';
+                    }
+                    
+                    runningBalance = endingBal;
+
+                    // Bulletproof Date Checking
+                    let isPast = false;
+                    if (row.end_date) {
+                        const periodEndDate = new Date(row.end_date + 'T00:00:00');
+                        isPast = periodEndDate < today;
+                    }
+
+                    let rowClass = 'hover:bg-gray-750/50';
+                    let textClass = 'text-gray-300';
+                    let mutedTextClass = 'text-gray-400';
+
+                    if (isPast) {
+                        pastCount++;
+                        rowClass = 'opacity-35 bg-gray-950/20 line-through decoration-gray-600';
+                        textClass = 'text-gray-500';
+                        mutedTextClass = 'text-gray-600';
+                    } else if (usedHours > 0) {
+                        rowClass = 'bg-emerald-950/40 border-l-4 border-emerald-500';
+                    }
+
+                    // Securely sanitize row attributes stringifying to handle characters safely
+                    const escapedRowData = JSON.stringify(row).replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+
+                    const tr = document.createElement('tr');
+                    tr.className = `${rowClass} group relative`;
+                    tr.id = `row-${row.period_number}`;
+                    tr.innerHTML = `
+                        <td class="p-4 font-bold ${isPast ? 'text-gray-600' : usedHours > 0 ? 'text-emerald-400' : 'text-gray-400'}">${row.period_number}</td>
+                        <td class="p-4 ${textClass}">${row.start_date || ''}</td>
+                        <td class="p-4 ${mutedTextClass}">${row.end_date || ''}</td>
+                        <td class="p-4 ${mutedTextClass}">${row.pay_date || ''}</td>
+                        <td class="p-4 text-right font-mono ${mutedTextClass}">${startingBal.toFixed(2)}</td>
+                        <td class="p-4 text-center font-mono font-semibold ${isPast ? 'text-gray-600' : usedHours > 0 ? 'text-amber-400' : 'text-gray-500'}">${usedHours}</td>
+                        <td class="p-4 text-center text-gray-400">${usedDays}</td>
+                        <td class="p-4 text-center font-mono ${mutedTextClass}">${accrual}</td>
+                        <td class="p-4 text-right font-mono ${isPast ? 'text-gray-600' : explicitOverrideStyle || 'text-emerald-400 font-bold'}">${endingBal.toFixed(2)}</td>
+                        <td class="p-4 font-medium truncate ${isPast ? 'text-gray-500' : 'text-gray-200'}">${row.notes || ''}</td>
+                        <td class="p-4 text-xs truncate ${isPast ? 'text-gray-600' : 'text-gray-400'} italic">${row.extra_notes || ''}</td>
+                        <td class="p-4 text-center relative overflow-visible">
+                            <button onclick="toggleActionMenu(event, ${row.period_number})" class="text-gray-500 hover:text-gray-300 p-1 rounded font-bold text-lg select-none">⋮</button>
+                            <div id="menu-${row.period_number}" class="hidden absolute right-4 top-10 bg-gray-950 border border-gray-700 rounded-lg shadow-2xl z-50 w-28 text-left py-1 overflow-hidden">
+                                <button onclick="enableInlineEdit(${row.period_number}, ${escapedRowData})" class="w-full text-left px-3 py-1.5 text-xs hover:bg-emerald-600 text-gray-200 font-medium">✏️ Edit Row</button>
+                            </div>
+                        </td>
+                    `;
+
+                    if (isPast) {
+                        pastBody.appendChild(tr);
+                    } else {
+                        activeBody.appendChild(tr);
+                    }
+                });
+
+                document.getElementById('past-row-count').innerText = pastCount;
+                document.getElementById('current-balance').innerText = `${runningBalance.toFixed(2)} hrs`;
+
+            } catch (err) {
+                console.error("Database error:", err);
+            }
+        }
+
+        function toggleActionMenu(event, periodNumber) {
+            event.stopPropagation();
+            const currentMenu = document.getElementById(`menu-${periodNumber}`);
+            
+            if (activeMenuPeriod && activeMenuPeriod !== periodNumber) {
+                const openMenu = document.getElementById(`menu-${activeMenuPeriod}`);
+                if (openMenu) openMenu.classList.add('hidden');
+            }
+
+            if (currentMenu.classList.contains('hidden')) {
+                currentMenu.classList.remove('hidden');
+                activeMenuPeriod = periodNumber;
+            } else {
+                currentMenu.classList.add('hidden');
+                activeMenuPeriod = null;
+            }
+        }
+
+        document.addEventListener('click', () => {
+            if (activeMenuPeriod) {
+                const openMenu = document.getElementById(`menu-${activeMenuPeriod}`);
+                if (openMenu) openMenu.classList.add('hidden');
+                activeMenuPeriod = null;
+            }
+        });
+
+        function enableInlineEdit(periodNumber, rowData) {
+            const tr = document.getElementById(`row-${periodNumber}`);
+            
+            tr.innerHTML = `
+                <td class="p-2 font-bold text-gray-400">${rowData.period_number}</td>
+                <td class="p-1"><input type="date" id="edit-start-${periodNumber}" value="${rowData.start_date || ''}" class="w-full bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-gray-200"></td>
+                <td class="p-1"><input type="date" id="edit-end-${periodNumber}" value="${rowData.end_date || ''}" class="w-full bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-gray-200"></td>
+                <td class="p-1"><input type="date" id="edit-pay-${periodNumber}" value="${rowData.pay_date || ''}" class="w-full bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-gray-200"></td>
+                <td class="p-2 text-right font-mono text-gray-500">-</td>
+                <td class="p-1"><input type="number" id="edit-hours-${periodNumber}" value="${rowData.hours_used || 0}" class="w-full bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs font-mono text-center text-amber-400 font-bold"></td>
+                <td class="p-1"><input type="number" id="edit-days-${periodNumber}" value="${rowData.days_used || ''}" class="w-full bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-center text-gray-200"></td>
+                <td class="p-1"><input type="number" id="edit-accrual-${periodNumber}" value="${rowData.accrual_amount || 5}" class="w-full bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-center font-mono text-gray-200"></td>
+                <td class="p-2 text-right font-mono text-gray-500">-</td>
+                <td class="p-1"><input type="text" id="edit-notes-${periodNumber}" value="${rowData.notes || ''}" class="w-full bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-gray-200"></td>
+                <td class="p-1"><input type="text" id="edit-extra-${periodNumber}" value="${rowData.extra_notes || ''}" class="w-full bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-gray-400 italic"></td>
+                <td class="p-2 text-center flex items-center justify-center gap-1 mt-1">
+                    <button onclick="saveInlineEdit(${periodNumber})" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded text-xs font-bold shadow">💾</button>
+                    <button onclick="loadPTOTracker()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded text-xs font-bold shadow">❌</button>
+                </td>
+            `;
+        }
+
+        async function saveInlineEdit(periodNumber) {
+            const startDate = document.getElementById(`edit-start-${periodNumber}`).value;
+            const endDate = document.getElementById(`edit-end-${periodNumber}`).value;
+            const payDate = document.getElementById(`edit-pay-${periodNumber}`).value;
+            const hoursUsed = parseInt(document.getElementById(`edit-hours-${periodNumber}`).value) || 0;
+            const daysUsedInput = document.getElementById(`edit-days-${periodNumber}`).value;
+            const daysUsed = daysUsedInput !== '' ? parseInt(daysUsedInput) : null;
+            const accrualAmount = parseFloat(document.getElementById(`edit-accrual-${periodNumber}`).value) || 5;
+            const notes = document.getElementById(`edit-notes-${periodNumber}`).value;
+            const extraNotes = document.getElementById(`edit-extra-${periodNumber}`).value;
+
+            const { error } = await supabaseClient
+                .from('pay_periods')
+                .update({
+                    start_date: startDate ? startDate : null,
+                    end_date: endDate ? endDate : null,
+                    pay_date: payDate ? payDate : null,
+                    hours_used: hoursUsed,
+                    days_used: daysUsed,
+                    accrual_amount: accrualAmount,
+                    notes: notes,
+                    extra_notes: extraNotes
+                })
+                .eq('period_number', periodNumber);
+
+            if (error) {
+                alert("Failed to update database record: " + error.message);
+            } else {
+                await loadPTOTracker();
+            }
+        }
+
+        // Weekend-Skipping Calculation Logics
+        function calculateTripDetails() {
+            const startVal = document.getElementById('trip-start').value;
+            const endVal = document.getElementById('trip-end').value;
+            const previewDiv = document.getElementById('trip-preview');
+
+            if (!startVal || !endVal) return;
+
+            let start = new Date(startVal + 'T00:00:00');
+            let end = new Date(endVal + 'T00:00:00');
+
+            if (end < start) {
+                previewDiv.innerHTML = `<span class="text-red-400">Error: End date occurs before start date.</span>`;
+                return;
+            }
+
+            let businessDays = 0;
+            let totalDays = 0;
+            let current = new Date(start);
+
+            while (current <= end) {
+                totalDays++;
+                const dayOfWeek = current.getDay();
+                if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                    businessDays++;
+                }
+                current.setDate(current.getDate() + 1);
+            }
+
+            const hoursUsed = businessDays * 8;
+            
+            const startStr = start.toLocaleDateString('en-US', {month:'numeric', day:'numeric'});
+            const endStr = end.toLocaleDateString('en-US', {month:'numeric', day:'numeric'});
+            const extraNotesText = `${startStr}-${endStr}, Calculated PTO: ${businessDays} business days (${hoursUsed} hrs). Saturday/Sunday omitted from deduction.`;
+
+            previewDiv.innerHTML = `<span class="text-emerald-400 font-bold">${hoursUsed} hrs used</span> (${businessDays} full tracking days, ${totalDays - businessDays} weekend days skipped).`;
+            
+            return { hoursUsed, businessDays, extraNotesText };
+        }
+
+        document.getElementById('trip-start').addEventListener('change', calculateTripDetails);
+        document.getElementById('trip-end').addEventListener('change', calculateTripDetails);
+
+        document.getElementById('trip-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const period = parseInt(document.getElementById('form-period').value);
+            const notes = document.getElementById('form-notes').value;
+            
+            const calculations = calculateTripDetails();
+            if (!calculations) return;
+
+            const { error } = await supabaseClient
+                .from('pay_periods')
+                .update({
+                    hours_used: calculations.hoursUsed,
+                    days_used: calculations.businessDays,
+                    notes: notes,
+                    extra_notes: calculations.extraNotesText
+                })
+                .eq('period_number', period);
+
+            if (error) {
+                alert("Error updating database: " + error.message);
+            } else {
+                document.getElementById('trip-form').reset();
+                document.getElementById('trip-preview').innerText = "Select dates to view calculations...";
+                await loadPTOTracker();
+            }
+        });
+
+        document.getElementById('override-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const period = parseInt(document.getElementById('override-period').value);
+            const balance = parseFloat(document.getElementById('override-balance').value);
+
+            balanceOverrides[period] = balance;
+            
+            document.getElementById('override-form').reset();
+            await loadPTOTracker();
+        });
+
+        loadPTOTracker();
+    </script>
+</body>
+</html>
