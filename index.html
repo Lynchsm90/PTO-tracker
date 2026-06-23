@@ -6,7 +6,7 @@
     <title>PTO Tracker Portfolio</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <link rel="icon" href="data:,">
+    <link class="hidden" rel="icon" href="data:,">
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen p-6 font-sans">
 
@@ -19,7 +19,7 @@
             </div>
             <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 shadow-lg text-right">
                 <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Current Balance</span>
-                <div id="current-balance" class="text-2xl font-black text-emerald-400">45.96 hrs</div>
+                <div id="current-balance" class="text-2xl font-black text-emerald-400">-- hrs</div>
             </div>
         </header>
 
@@ -231,10 +231,10 @@
                 const today = new Date();
                 today.setHours(0,0,0,0);
                 
-                // Adjusted initial baseline balance precisely as requested
-                let runningBalance = 45.96; 
+                // FIXED: Reset timeline calculation foundation to match Period 1 true logic
+                let runningBalance = 46.96; 
                 let pastCount = 0;
-                let calculatedLiveBalance = 45.96;
+                let calculatedLiveBalance = 46.96;
                 let foundCurrentPeriod = false;
 
                 globalPayPeriodsCache.forEach((row) => {
